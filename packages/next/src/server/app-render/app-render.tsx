@@ -39,7 +39,12 @@ import type {
   DevRenderContext,
   RouteMatch,
 } from '../route-modules/app-page/module'
-import type { BaseNextResponse } from '../base-http'
+import type { OutgoingHttpHeaders } from 'http'
+import {
+  createPrerenderHeaders,
+  type RenderStatus,
+  type RenderHeaderSink,
+} from './render-response'
 import * as ReactClient from 'react'
 
 import RenderResult, {
@@ -418,7 +423,8 @@ export type AppRenderContext = {
   assetPrefix: string
   isNotFoundPath: boolean
   nonce: string | undefined
-  res: BaseNextResponse
+  responseStatus: RenderStatus
+  responseHeaders: RenderHeaderSink
   devResponseLifecycle: DevResponseLifecycle | null
   /**
    * For now, the implicit tags are common for the whole route. If we ever start
@@ -647,7 +653,7 @@ async function generateDynamicRSCPayload(
       createElement(NonIndex, {
         createElement,
         pagePath: ctx.pagePath,
-        statusCode: ctx.res.statusCode,
+        statusCode: ctx.responseStatus.statusCode,
         isPossibleServerAction: ctx.isPossibleServerAction,
       }),
       createElement(Viewport, {
@@ -2128,7 +2134,7 @@ async function getRSCPayload(
     createElement(NonIndex, {
       createElement,
       pagePath: ctx.pagePath,
-      statusCode: ctx.res.statusCode,
+      statusCode: ctx.responseStatus.statusCode,
       isPossibleServerAction: ctx.isPossibleServerAction,
     }),
     createElement(Viewport, null),
@@ -2245,7 +2251,7 @@ async function getErrorRSCPayload(
     createElement(NonIndex, {
       createElement,
       pagePath: ctx.pagePath,
-      statusCode: ctx.res.statusCode,
+      statusCode: ctx.responseStatus.statusCode,
       isPossibleServerAction: ctx.isPossibleServerAction,
     }),
     Viewport ? createElement(Viewport, null) : null,
@@ -2461,7 +2467,6 @@ function ErrorApp<T>({
 export type BinaryStreamOf<T> = AnyStream
 
 type PreparedAppPageRender = {
-  serverActionRequestMetadata: ServerActionRequestMetadata
   ctx: AppRenderContext
   metadata: AppPageRenderResultMetadata
   loaderTree: LoaderTree
@@ -2525,7 +2530,8 @@ function initializeClientComponentLoadTracking(
 }
 
 async function prepareAppPageRender(
-  res: BaseNextResponse,
+  responseStatus: RenderStatus,
+  responseHeaders: RenderHeaderSink,
   requestUrl: string,
   url: ReturnType<typeof parseRelativeUrl>,
   pagePath: string,
@@ -2545,7 +2551,7 @@ async function prepareAppPageRender(
 ): Promise<PreparedAppPageRender> {
   const isNotFoundPath = pagePath === '/404'
   if (isNotFoundPath) {
-    res.statusCode = 404
+    responseStatus.statusCode = 404
   }
 
   // A unique request timestamp used by development to ensure that it's
@@ -2676,7 +2682,8 @@ async function prepareAppPageRender(
     assetPrefix,
     isNotFoundPath,
     nonce,
-    res,
+    responseStatus,
+    responseHeaders,
     devResponseLifecycle,
     sharedContext,
     implicitTags,
@@ -2685,7 +2692,6 @@ async function prepareAppPageRender(
   getTracer().setRootSpanAttribute('next.route', pagePath)
 
   return {
-    serverActionRequestMetadata,
     ctx,
     metadata,
     loaderTree,
@@ -2697,7 +2703,14 @@ async function prerenderAppPage({
   metadata,
   loaderTree,
 }: PreparedAppPageRender): Promise<PrerenderResult> {
-  const { res, pagePath, renderOpts, workStore, url, fallbackRouteParams } = ctx
+  const {
+    responseStatus,
+    pagePath,
+    renderOpts,
+    workStore,
+    url,
+    fallbackRouteParams,
+  } = ctx
 
   // We're either building or revalidating. In either case we need to
   // prerender our page rather than render it.
@@ -2717,7 +2730,6 @@ async function prerenderAppPage({
   let response: PrerenderToStreamResult
   try {
     response = await prerenderToStreamWithTracing(
-      res,
       ctx,
       metadata,
       loaderTree,
@@ -2789,13 +2801,14 @@ async function prerenderAppPage({
   }
 
   if (renderError !== undefined) {
-    res.statusCode = 500
+    responseStatus.statusCode = 500
     metadata.statusCode = 500
   } else {
     applyMetadataFromPrerenderResult(response, metadata, workStore)
   }
 
   const streamString = await streamToString(response.stream)
+  metadata.statusCode = responseStatus.statusCode
 
   // Copy only the delivery metadata. Partial recovery includes its resume data
   // cache in the serialized postponed state, so it needs no live cache below.
@@ -2850,7 +2863,7 @@ async function renderAppPage(
   stagedFallbackParams: OpaqueFallbackRouteParams | null
 ) {
   const {
-    res,
+    responseStatus,
     url,
     renderOpts,
     workStore,
@@ -2997,7 +3010,7 @@ async function renderAppPage(
     if (actionRequestResult) {
       if (actionRequestResult.type === 'not-found') {
         const notFoundLoaderTree = createNotFoundLoaderTree(loaderTree)
-        res.statusCode = 404
+        responseStatus.statusCode = 404
         metadata.statusCode = 404
         const tracker = initializeClientComponentLoadTracking(
           renderOpts,
@@ -3007,7 +3020,6 @@ async function renderAppPage(
         try {
           const stream = await renderToStream(
             requestStore,
-            res,
             ctx,
             dev,
             notFoundLoaderTree,
@@ -3053,7 +3065,6 @@ async function renderAppPage(
       // NOTE: in Cache Components (dev), if the render is restarted, it will use a different requestStore
       // than the one that we're passing in here.
       requestStore,
-      res,
       ctx,
       dev,
       loaderTree,
@@ -3134,7 +3145,8 @@ async function renderAppPage(
 
 async function renderToHTMLOrFlightImpl(
   handleAction: AppPageActionHandler | null,
-  res: BaseNextResponse,
+  responseStatus: RenderStatus,
+  responseHeaders: RenderHeaderSink,
   requestUrl: string,
   requestHeaders: IncomingHttpHeaders,
   url: ReturnType<typeof parseRelativeUrl>,
@@ -3161,7 +3173,8 @@ async function renderToHTMLOrFlightImpl(
     )
   }
   const prepared = await prepareAppPageRender(
-    res,
+    responseStatus,
+    responseHeaders,
     requestUrl,
     url,
     pagePath,
@@ -3199,7 +3212,8 @@ async function renderToHTMLOrFlightImpl(
 }
 
 async function prerenderToHTMLOrFlightImpl(
-  res: BaseNextResponse,
+  initialStatusCode: number | undefined,
+  initialHeaders: OutgoingHttpHeaders,
   requestUrl: string,
   url: ReturnType<typeof parseRelativeUrl>,
   pagePath: string,
@@ -3213,6 +3227,8 @@ async function prerenderToHTMLOrFlightImpl(
   fallbackRouteParams: OpaqueFallbackRouteParams | null,
   routeMatch: RouteMatch
 ) {
+  const responseStatus: RenderStatus = { statusCode: initialStatusCode }
+  const responseHeaders = createPrerenderHeaders(initialHeaders)
   if (renderOpts.ComponentMod.__next_app__) {
     installGlobalModuleLoadingHandlers(
       renderOpts.ComponentMod,
@@ -3221,7 +3237,8 @@ async function prerenderToHTMLOrFlightImpl(
   }
   const isRoutePPREnabled = renderOpts.experimental.isRoutePPREnabled === true
   const prepared = await prepareAppPageRender(
-    res,
+    responseStatus,
+    responseHeaders,
     requestUrl,
     url,
     pagePath,
@@ -3246,12 +3263,14 @@ async function prerenderToHTMLOrFlightImpl(
     },
     null
   )
+  prepared.metadata.headers = responseHeaders.headers
   return prerenderAppPage(prepared)
 }
 
 export type AppPageRender = (
   handleAction: AppPageActionHandler | null,
-  res: BaseNextResponse,
+  responseStatus: RenderStatus,
+  responseHeaders: RenderHeaderSink,
   requestUrl: string,
   requestHeaders: IncomingHttpHeaders,
   pagePath: string,
@@ -3269,7 +3288,8 @@ export type AppPageRender = (
 ) => Promise<RenderResult<AppPageRenderResultMetadata>>
 
 export type AppPagePrerender = (
-  res: BaseNextResponse,
+  initialStatusCode: number | undefined,
+  initialHeaders: OutgoingHttpHeaders,
   requestUrl: string,
   pagePath: string,
   query: NextParsedUrlQuery,
@@ -3356,7 +3376,8 @@ function prepareAppPage(
 
 export const renderToHTMLOrFlight: AppPageRender = (
   handleAction,
-  res,
+  responseStatus,
+  responseHeaders,
   requestUrl,
   requestHeaders,
   pagePath,
@@ -3396,7 +3417,8 @@ export const renderToHTMLOrFlight: AppPageRender = (
     workStore,
     renderToHTMLOrFlightImpl,
     handleAction,
-    res,
+    responseStatus,
+    responseHeaders,
     requestUrl,
     requestHeaders,
     url,
@@ -3419,7 +3441,8 @@ export const renderToHTMLOrFlight: AppPageRender = (
 }
 
 export const prerenderToHTMLOrFlight: AppPagePrerender = (
-  res,
+  initialStatusCode,
+  initialHeaders,
   requestUrl,
   pagePath,
   query,
@@ -3453,7 +3476,8 @@ export const prerenderToHTMLOrFlight: AppPagePrerender = (
   return workAsyncStorage.run(
     workStore,
     prerenderToHTMLOrFlightImpl,
-    res,
+    initialStatusCode,
+    initialHeaders,
     requestUrl,
     url,
     pagePath,
@@ -3528,7 +3552,6 @@ type RSCInitialPayloadPartialDev = {
 
 async function renderToStream(
   requestStore: RequestStore,
-  res: BaseNextResponse,
   ctx: AppRenderContext,
   devContext: DevRenderContext | undefined,
   tree: LoaderTree,
@@ -3539,6 +3562,7 @@ async function renderToStream(
   stagedFallbackParams: OpaqueFallbackRouteParams | null,
   tracker: ClientComponentLoadTracker | undefined
 ): Promise<AnyStream> {
+  const { responseStatus } = ctx
   /* eslint-disable @next/internal/no-ambiguous-jsx -- React Client */
   // MARK: renderToStream setup
   const {
@@ -3732,8 +3756,7 @@ async function renderToStream(
     let reactServerResult: null | ReactServerResult = null
     let reactDebugStream: AnyStream | undefined
 
-    const setHeader = res.setHeader.bind(res)
-    const appendHeader = res.appendHeader.bind(res)
+    const { setHeader, appendHeader } = ctx.responseHeaders
     const { clientModules } = getClientReferenceManifest()
 
     try {
@@ -3763,7 +3786,10 @@ async function renderToStream(
               getRSCPayload,
               tree,
               ctx,
-              { is404: res.statusCode === 404, isPrerendering: false }
+              {
+                is404: responseStatus.statusCode === 404,
+                isPrerendering: false,
+              }
             )
 
           if (isBypassingCachesInDev(requestStore, workStore)) {
@@ -3952,7 +3978,7 @@ async function renderToStream(
           tree,
           ctx,
           {
-            is404: res.statusCode === 404,
+            is404: responseStatus.statusCode === 404,
             isPrerendering: false,
             staleTimeIterable,
             stageByteLengthsPromise: stageByteLengthsDeferred.promise,
@@ -4020,7 +4046,10 @@ async function renderToStream(
               getRSCPayload,
               tree,
               ctx,
-              { is404: res.statusCode === 404, isPrerendering: false }
+              {
+                is404: responseStatus.statusCode === 404,
+                isPrerendering: false,
+              }
             )
 
           const debugChannel = setReactDebugChannel && createNodeDebugChannel()
@@ -4062,7 +4091,10 @@ async function renderToStream(
               getRSCPayload,
               tree,
               ctx,
-              { is404: res.statusCode === 404, isPrerendering: false }
+              {
+                is404: responseStatus.statusCode === 404,
+                isPrerendering: false,
+              }
             )
 
           const debugChannel = setReactDebugChannel && createWebDebugChannel()
@@ -4420,13 +4452,15 @@ async function renderToStream(
       let errorType: MetadataErrorType | 'redirect' | undefined
 
       if (isHTTPAccessFallbackError(err)) {
-        res.statusCode = getAccessFallbackHTTPStatus(err)
-        metadata.statusCode = res.statusCode
-        errorType = getAccessFallbackErrorTypeByStatus(res.statusCode)
+        responseStatus.statusCode = getAccessFallbackHTTPStatus(err)
+        metadata.statusCode = responseStatus.statusCode
+        errorType = getAccessFallbackErrorTypeByStatus(
+          responseStatus.statusCode
+        )
       } else if (isRedirectError(err)) {
         errorType = 'redirect'
-        res.statusCode = getRedirectStatusCodeFromError(err)
-        metadata.statusCode = res.statusCode
+        responseStatus.statusCode = getRedirectStatusCodeFromError(err)
+        metadata.statusCode = responseStatus.statusCode
 
         const redirectUrl = addPathPrefix(
           getURLFromRedirectError(err),
@@ -4442,8 +4476,8 @@ async function renderToStream(
 
         setHeader('location', redirectUrl)
       } else if (!shouldBailoutToCSR) {
-        res.statusCode = 500
-        metadata.statusCode = res.statusCode
+        responseStatus.statusCode = 500
+        metadata.statusCode = responseStatus.statusCode
       }
 
       const [errorPreinitScripts, errorBootstrapScript] = getRequiredScripts(
@@ -8637,7 +8671,8 @@ async function validateInstantConfigInBuildWithSample(
       assetPrefix: outerCtx.assetPrefix,
       isNotFoundPath: outerCtx.isNotFoundPath,
       nonce: outerCtx.nonce,
-      res: outerCtx.res,
+      responseStatus: outerCtx.responseStatus,
+      responseHeaders: outerCtx.responseHeaders,
       devResponseLifecycle: outerCtx.devResponseLifecycle,
       sharedContext: outerCtx.sharedContext,
       implicitTags: outerCtx.implicitTags,
@@ -8914,7 +8949,6 @@ function withTurbopackBootstrapScript(
 }
 
 async function prerenderToStream(
-  res: BaseNextResponse,
   ctx: AppRenderContext,
   metadata: AppPageRenderResultMetadata,
   tree: LoaderTree,
@@ -8924,6 +8958,7 @@ async function prerenderToStream(
   // because some shared APIs expect a formState value and this is slightly
   // more explicit than making it an optional function argument
   const formState = null
+  const { responseStatus } = ctx
 
   const {
     assetPrefix,
@@ -9091,25 +9126,7 @@ async function prerenderToStream(
   let reactServerRenderChunks: Array<Uint8Array> | null = null
   let reactServerResumeDataCache: ResumeDataCache | null = null
   let reactServerPrerenderStore: null | PrerenderStore = null
-  const setMetadataHeader = (name: string) => {
-    metadata.headers ??= {}
-    metadata.headers[name] = res.getHeader(name)
-  }
-  const setHeader = (name: string, value: string | string[]) => {
-    res.setHeader(name, value)
-    setMetadataHeader(name)
-    return res
-  }
-  const appendHeader = (name: string, value: string | string[]) => {
-    if (Array.isArray(value)) {
-      value.forEach((item) => {
-        res.appendHeader(name, item)
-      })
-    } else {
-      res.appendHeader(name, value)
-    }
-    setMetadataHeader(name)
-  }
+  const { setHeader, appendHeader } = ctx.responseHeaders
 
   const selectStaleTime = createSelectStaleTime(experimental)
   const { clientModules } = getClientReferenceManifest()
@@ -9128,15 +9145,15 @@ async function prerenderToStream(
       const statusCode = getAccessFallbackHTTPStatus(err)
       if (capturedHTTPErrorType === undefined) {
         capturedHTTPErrorType = 'access-fallback'
-        res.statusCode = statusCode
+        responseStatus.statusCode = statusCode
         metadata.statusCode = statusCode
       }
       return getAccessFallbackErrorTypeByStatus(statusCode)
     } else if (isRedirectError(err)) {
       if (capturedHTTPErrorType !== 'redirect') {
         capturedHTTPErrorType = 'redirect'
-        res.statusCode = getRedirectStatusCodeFromError(err)
-        metadata.statusCode = res.statusCode
+        responseStatus.statusCode = getRedirectStatusCodeFromError(err)
+        metadata.statusCode = responseStatus.statusCode
         setHeader(
           'location',
           addPathPrefix(getURLFromRedirectError(err), basePath)
@@ -9317,7 +9334,7 @@ async function prerenderToStream(
         ) as typeof getRSCPayload,
         tree,
         ctx,
-        { is404: res.statusCode === 404, isPrerendering: true }
+        { is404: responseStatus.statusCode === 404, isPrerendering: true }
       )
 
       const initialServerPrerenderStore: PrerenderStore = (prerenderStore = {
@@ -9616,7 +9633,7 @@ async function prerenderToStream(
         tree,
         ctx,
         {
-          is404: res.statusCode === 404,
+          is404: responseStatus.statusCode === 404,
           isPrerendering: true,
           stageByteLengthsPromise: stageByteLengthsDeferred.promise,
         }
@@ -10237,7 +10254,7 @@ async function prerenderToStream(
         getRSCPayload,
         tree,
         ctx,
-        { is404: res.statusCode === 404, isPrerendering: true }
+        { is404: responseStatus.statusCode === 404, isPrerendering: true }
       )
 
       let reactServerResult: ReactServerPrerenderResult
@@ -10399,8 +10416,8 @@ async function prerenderToStream(
     const errorType = setHTTPAccessFallbackOrRedirectStatus(err)
 
     if (errorType === undefined) {
-      res.statusCode = 500
-      metadata.statusCode = res.statusCode
+      responseStatus.statusCode = 500
+      metadata.statusCode = responseStatus.statusCode
 
       if (
         cacheComponents &&
