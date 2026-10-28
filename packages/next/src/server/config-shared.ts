@@ -648,6 +648,12 @@ export interface ExperimentalConfig {
    * fetch, and cache behavior without requiring an external OTEL collector.
    */
   requestInsights?: boolean
+  /**
+   * Enables the skills probe. When enabled, the flag is inlined into
+   * client/user bundles as `process.env.__NEXT_SKILLS_PROBE` and is also
+   * exposed as a real environment variable to the app-render runtime.
+   */
+  skillsProbe?: boolean
   extensionAlias?: Record<string, any>
   allowedRevalidateHeaderKeys?: string[]
   fetchCacheKeyPrefix?: string
@@ -2455,6 +2461,7 @@ export const defaultConfig = Object.freeze({
     swcTraceProfiling: false,
     forceSwcTransforms: false,
     requestInsights: false,
+    skillsProbe: false,
     swcPlugins: undefined,
     largePageDataBytes: 128 * 1000, // 128KB by default
     disablePostcssPresetEnv: undefined,
@@ -2622,6 +2629,7 @@ export interface NextConfigRuntime {
     | 'exposeTestingApiInProductionBuild'
     | 'instantInsights'
     | 'requestInsights'
+    | 'skillsProbe'
   > & {
     // Pick on @internal fields generates invalid .d.ts files
     /** @internal */
@@ -2695,6 +2703,7 @@ export function getNextConfigRuntime(
     exposeTestingApiInProductionBuild: ex.exposeTestingApiInProductionBuild,
     instantInsights: ex.instantInsights,
     requestInsights: ex.requestInsights,
+    skillsProbe: ex.skillsProbe,
 
     trustHostHeader: ex.trustHostHeader,
     isExperimentalCompile: ex.isExperimentalCompile,
