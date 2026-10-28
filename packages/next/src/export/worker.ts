@@ -410,6 +410,10 @@ export async function exportPages(
 
   installGlobalBehaviors(nextConfig)
 
+  if (nextConfig.experimental.skillsProbe) {
+    process.env.__NEXT_SKILLS_PROBE = 'true'
+  }
+
   if (nextConfig.enablePrerenderSourceMaps) {
     try {
       // Same as `next dev`

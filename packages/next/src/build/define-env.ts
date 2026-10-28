@@ -308,6 +308,7 @@ export function getDefineEnv({
       (config.experimental.nextScriptWorkers && !dev) ?? false,
     'process.env.__NEXT_SCROLL_RESTORATION':
       config.experimental.scrollRestoration ?? false,
+    'process.env.__NEXT_SKILLS_PROBE': Boolean(config.experimental.skillsProbe),
     ...getImageConfig(config, dev),
     'process.env.__NEXT_ROUTER_BASEPATH': config.basePath,
     'process.env.__NEXT_HAS_REWRITES': hasRewrites,

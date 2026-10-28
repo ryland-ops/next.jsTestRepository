@@ -340,6 +340,7 @@ export const experimentalSchema = {
   removeUncaughtErrorAndRejectionListeners: z.boolean().optional(),
   validateRSCRequestHeaders: z.boolean().optional(),
   scrollRestoration: z.boolean().optional(),
+  skillsProbe: z.boolean().optional(),
   sri: z
     .object({
       algorithm: z.enum(['sha256', 'sha384', 'sha512']).optional(),
