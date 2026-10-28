@@ -189,6 +189,7 @@ export function getDefineEnv({
     ),
     'process.env.__NEXT_REQUEST_INSIGHTS':
       dev && !!config.experimental.requestInsights,
+    'process.env.__NEXT_SKILLS_PROBE': Boolean(config.experimental.skillsProbe),
     'process.env.__NEXT_USE_CACHE': isUseCacheEnabled,
     'process.env.__NEXT_USE_NODE_STREAMS': isEdgeServer ? false : true,
 
