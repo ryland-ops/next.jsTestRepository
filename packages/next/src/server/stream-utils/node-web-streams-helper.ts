@@ -191,6 +191,43 @@ export async function webstreamToUint8Array(
   return concatUint8Arrays(await streamToChunks(stream))
 }
 
+/**
+ * Adapt a web stream to a Node.js `Readable`.
+ *
+ * Only callable on the Node.js server. This module is also bundled for the
+ * edge runtime, so the `node:stream` require has to stay inside the `else`
+ * branch of a `process.env.NEXT_RUNTIME` check: the bundler inlines that value
+ * and dead-code-eliminates the branch, which keeps `node:stream` out of the
+ * edge build entirely.
+ */
+export function webToNodeReadable(
+  stream: ReadableStream
+): import('node:stream').Readable {
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    throw new InvariantError(
+      'A web stream cannot be converted to a Node.js Readable in the edge runtime'
+    )
+  } else {
+    let Readable: typeof import('node:stream').Readable
+    if (process.env.TURBOPACK) {
+      Readable = (require('node:stream') as typeof import('node:stream'))
+        .Readable
+    } else if (
+      process.env.__NEXT_BUNDLER === 'Webpack' ||
+      process.env.__NEXT_BUNDLER === 'Rspack'
+    ) {
+      Readable = (
+        __non_webpack_require__('node:stream') as typeof import('node:stream')
+      ).Readable
+    } else {
+      Readable = (require('node:stream') as typeof import('node:stream'))
+        .Readable
+    }
+
+    return Readable.fromWeb(stream as import('stream/web').ReadableStream)
+  }
+}
+
 function webToReadable(
   stream: ReadableStream<Uint8Array> | import('node:stream').Readable
 ): import('node:stream').Readable {
