@@ -708,6 +708,12 @@ export interface ExperimentalConfig {
   optimizeCss?: boolean | Record<string, unknown>
   nextScriptWorkers?: boolean
   scrollRestoration?: boolean
+  /**
+   * Enables the experimental skills probe. When enabled the flag is inlined
+   * into client bundles as `process.env.__NEXT_SKILLS_PROBE` and exposed to the
+   * app-render runtime through the `__NEXT_SKILLS_PROBE` environment variable.
+   */
+  skillsProbe?: boolean
   externalDir?: boolean
   disableOptimizedLoading?: boolean
 
@@ -2445,6 +2451,7 @@ export const defaultConfig = Object.freeze({
     optimizeCss: false,
     nextScriptWorkers: false,
     scrollRestoration: false,
+    skillsProbe: false,
     externalDir: false,
     devMemoryThresholdRestart: true,
     disableOptimizedLoading: false,
@@ -2622,6 +2629,7 @@ export interface NextConfigRuntime {
     | 'exposeTestingApiInProductionBuild'
     | 'instantInsights'
     | 'requestInsights'
+    | 'skillsProbe'
   > & {
     // Pick on @internal fields generates invalid .d.ts files
     /** @internal */
@@ -2695,6 +2703,7 @@ export function getNextConfigRuntime(
     exposeTestingApiInProductionBuild: ex.exposeTestingApiInProductionBuild,
     instantInsights: ex.instantInsights,
     requestInsights: ex.requestInsights,
+    skillsProbe: ex.skillsProbe,
 
     trustHostHeader: ex.trustHostHeader,
     isExperimentalCompile: ex.isExperimentalCompile,

@@ -237,6 +237,11 @@ export default class NextNodeServer extends BaseServer<
     } else {
       delete process.env.__NEXT_REQUEST_INSIGHTS
     }
+    if (this.nextConfig.experimental.skillsProbe) {
+      process.env.__NEXT_SKILLS_PROBE = 'true'
+    } else {
+      delete process.env.__NEXT_SKILLS_PROBE
+    }
 
     if (!this.minimalMode) {
       this.imageResponseCache = new ResponseCache({
