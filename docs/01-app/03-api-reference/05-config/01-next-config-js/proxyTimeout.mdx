@@ -1,0 +1,162 @@
+---
+title: proxyTimeout
+description: Configure how long Next.js waits for the upstream server when it proxies a rewrite to an external URL.
+version: experimental
+---
+
+{/* The content of this doc is shared between the app and pages router. You can use the `<PagesOnly>Content</PagesOnly>` component to add content that is specific to the Pages Router. Any shared content should not be wrapped in a component. */}
+
+`proxyTimeout` sets how long, in milliseconds, the Next.js server waits for the upstream (origin) server when it proxies a request to an external URL. The default is `30000` (30 seconds).
+
+```ts filename="next.config.ts" switcher
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  experimental: {
+    proxyTimeout: 60_000,
+  },
+}
+
+export default nextConfig
+```
+
+```js filename="next.config.js" switcher
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    proxyTimeout: 60_000,
+  },
+}
+
+module.exports = nextConfig
+```
+
+## Reference
+
+| Value              | Behavior                                       |
+| ------------------ | ---------------------------------------------- |
+| Not set            | Waits `30000` ms (30 seconds).                 |
+| A positive integer | Waits that many milliseconds.                  |
+| `0`                | Treated as unset. Waits `30000` ms. See below. |
+
+The value must be a non-negative number. Other values fail `next.config.js` validation.
+
+### When it applies
+
+This option applies only to requests the Next.js server proxies to an external URL, which happens in two cases:
+
+- A [`rewrite`](/docs/app/api-reference/config/next-config-js/rewrites#rewriting-to-an-external-url) whose `destination` is an absolute URL.
+- A `NextResponse.rewrite()` from [Proxy](/docs/app/api-reference/file-conventions/proxy) whose destination is an absolute URL.
+
+It has no effect on requests served by your own routes, so it does not cap how long a Server Component, Route Handler, or Server Action may run.
+
+### It is an idle timeout, not a total duration limit
+
+The timeout measures inactivity on the upstream connection, not the total time the request takes. It resets every time the upstream sends data.
+
+An upstream that streams a response for five minutes will not be cut off by `proxyTimeout: 30000`, as long as it never goes 30 seconds without sending anything. Use this option to bound how long Next.js waits on a stalled or unresponsive upstream, not to enforce a deadline on long responses.
+
+### Behavior on timeout
+
+When the upstream goes idle for longer than the timeout, Next.js destroys the upstream connection and the request fails. The client receives a `500` response with the body `Internal Server Error`, and the server logs:
+
+```bash filename="Terminal"
+Failed to proxy https://example.com/ Error: socket hang up
+```
+
+## Good to know
+
+- **`0` does not disable the timeout.** Config validation accepts `0`, but the value is treated as unset and the 30 second default is used instead. There is no supported way to wait indefinitely.
+- **This option is unrelated to [`proxyClientMaxBodySize`](/docs/app/api-reference/config/next-config-js/proxyClientMaxBodySize).** Despite the shared prefix, that option limits the request body buffered for the [Proxy](/docs/app/api-reference/file-conventions/proxy) file convention, while this one is about proxying to an external URL.
+- **WebSocket upgrade requests are not affected.** Connections proxied to an external URL through an upgrade request are not subject to this timeout, which would otherwise close idle but healthy connections.
+- The timeout is applied by the Next.js server, so it is relevant when you run `next start` or `next dev`. If a platform resolves external rewrites at its own edge before reaching your server, that platform's limits apply instead.
+
+## Examples
+
+### Allowing a slow upstream
+
+Raise the timeout when proxying to an origin that is slow to send its first byte, such as a report generator or a legacy backend.
+
+```ts filename="next.config.ts" switcher
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  experimental: {
+    // Wait up to 2 minutes for the legacy backend.
+    proxyTimeout: 120_000,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/reports/:path*',
+        destination: 'https://legacy.example.com/reports/:path*',
+      },
+    ]
+  },
+}
+
+export default nextConfig
+```
+
+```js filename="next.config.js" switcher
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    // Wait up to 2 minutes for the legacy backend.
+    proxyTimeout: 120_000,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/reports/:path*',
+        destination: 'https://legacy.example.com/reports/:path*',
+      },
+    ]
+  },
+}
+
+module.exports = nextConfig
+```
+
+### Failing fast on an unresponsive upstream
+
+Lower the timeout so a stalled upstream surfaces an error quickly instead of holding the connection open for 30 seconds.
+
+```ts filename="next.config.ts" switcher
+import type { NextConfig } from 'next'
+
+const nextConfig: NextConfig = {
+  experimental: {
+    proxyTimeout: 5_000,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/search/:path*',
+        destination: 'https://search.example.com/:path*',
+      },
+    ]
+  },
+}
+
+export default nextConfig
+```
+
+```js filename="next.config.js" switcher
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    proxyTimeout: 5_000,
+  },
+  async rewrites() {
+    return [
+      {
+        source: '/api/search/:path*',
+        destination: 'https://search.example.com/:path*',
+      },
+    ]
+  },
+}
+
+module.exports = nextConfig
+```
