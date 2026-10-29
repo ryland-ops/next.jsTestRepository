@@ -2,14 +2,11 @@ import { nextTestSetup } from 'e2e-utils'
 import type * as Playwright from 'playwright'
 import { createRouterAct } from 'router-act'
 
+// @force-gate prefetching
 describe('segment cache prefetch scheduling', () => {
-  const { next, isNextDev } = nextTestSetup({
+  const { next } = nextTestSetup({
     files: __dirname,
   })
-  if (isNextDev) {
-    test('prefetching is disabled', () => {})
-    return
-  }
 
   it('increases the priority of a viewport-initiated prefetch on hover', async () => {
     let act: ReturnType<typeof createRouterAct>
