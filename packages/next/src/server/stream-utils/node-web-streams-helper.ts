@@ -83,6 +83,38 @@ export function nodeToWebByteStream(
   }
 }
 
+/**
+ * Adapt a web stream to a Node.js Readable. Node.js server only; this module is
+ * also bundled for the edge runtime, where `node:stream` is unavailable.
+ */
+export function webToNodeReadable(
+  stream: ReadableStream
+): import('node:stream').Readable {
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    throw new InvariantError(
+      'A web stream cannot be converted to a Node.js Readable in the edge runtime'
+    )
+  } else {
+    let Readable: typeof import('node:stream').Readable
+    if (process.env.TURBOPACK) {
+      Readable = (require('node:stream') as typeof import('node:stream'))
+        .Readable
+    } else if (
+      process.env.__NEXT_BUNDLER === 'Webpack' ||
+      process.env.__NEXT_BUNDLER === 'Rspack'
+    ) {
+      Readable = (
+        __non_webpack_require__('node:stream') as typeof import('node:stream')
+      ).Readable
+    } else {
+      Readable = (require('node:stream') as typeof import('node:stream'))
+        .Readable
+    }
+
+    return Readable.fromWeb(stream as import('stream/web').ReadableStream)
+  }
+}
+
 export function chainStreams<T>(
   ...streams: ReadableStream<T>[]
 ): ReadableStream<T> {
@@ -194,29 +226,10 @@ export async function webstreamToUint8Array(
 function webToReadable(
   stream: ReadableStream<Uint8Array> | import('node:stream').Readable
 ): import('node:stream').Readable {
-  if (process.env.NEXT_RUNTIME === 'edge') {
-    throw new Error('webToReadable cannot be used in the edge runtime')
-  } else {
-    let Readable: typeof import('node:stream').Readable
-    if (process.env.TURBOPACK) {
-      Readable = (require('node:stream') as typeof import('node:stream'))
-        .Readable
-    } else if (
-      process.env.__NEXT_BUNDLER === 'Webpack' ||
-      process.env.__NEXT_BUNDLER === 'Rspack'
-    ) {
-      Readable = (
-        __non_webpack_require__('node:stream') as typeof import('node:stream')
-      ).Readable
-    } else {
-      Readable = (require('node:stream') as typeof import('node:stream'))
-        .Readable
-    }
-    if (stream instanceof Readable) {
-      return stream
-    }
-    return Readable.fromWeb(stream as import('stream/web').ReadableStream)
+  if (stream instanceof ReadableStream) {
+    return webToNodeReadable(stream)
   }
+  return stream
 }
 
 export async function nodestreamToUint8Array(
